@@ -22,8 +22,6 @@ services:
         value: "true"
       - key: GEMINI_API_KEY
         sync: false
-      - key: APP_ACCESS_CODE
-        sync: false
       - key: SESSION_SECRET
         generateValue: true
       - key: SECURE_COOKIES

@@ -19,7 +19,7 @@ def test_settings(monkeypatch):
     monkeypatch.setenv("GROQ_API_KEY", "test-only-no-live-requests")
     monkeypatch.setenv("LLM_PROVIDER", "gemini")
     monkeypatch.setenv("LLM_FALLBACK", "false")
-    monkeypatch.setenv("APP_ACCESS_CODE", "test-code")
+    monkeypatch.delenv("APP_ACCESS_CODE", raising=False)
     monkeypatch.setenv("SESSION_SECRET", "test-session-secret-not-for-deployment")
 
 
@@ -58,14 +58,13 @@ def answer(quote="Budget is 120 USD.", page=1, status="supported"):
 
 @pytest.fixture
 def client(monkeypatch):
-    monkeypatch.setenv("APP_ACCESS_CODE", "test-code")
+    monkeypatch.delenv("APP_ACCESS_CODE", raising=False)
     main.documents.clear()
     main.jobs.clear()
     main.answers.clear()
-    main.attempts.clear()
     main.usage.clear()
     with TestClient(main.app) as client:
-        assert client.post("/api/unlock", json={"code": "test-code"}).status_code == 200
+        assert client.get("/api/session").status_code == 200
         yield client
 
 
@@ -119,17 +118,14 @@ def test_valid_quote_and_unicode_whitespace():
     assert result.items[0].status == "supported"
 
 
-def test_auth_and_same_origin(client):
-    other = TestClient(main.app)
-    assert other.post("/api/documents", files={"file": ("x.pdf", make_pdf())}).status_code == 401
-    assert other.post("/api/unlock", json={"code": "wrong"}).status_code == 401
-    assert other.post("/api/unlock", json={"code": "mã sai"}).status_code == 401
-    response = client.post("/api/unlock", json={"code": "test-code"}, headers={"Origin": "https://evil.example"})
+def test_anonymous_sessions_and_same_origin(client):
+    with TestClient(main.app) as other:
+        assert other.post("/api/documents", files={"file": ("x.pdf", make_pdf())}).status_code == 200
+        assert other.post("/api/unlock", json={"code": "unused"}).status_code == 404
+    response = client.post("/api/logout", headers={"Origin": "https://evil.example"})
     assert response.status_code == 403
-    assert (
-        client.post("/api/unlock", json={"code": "test-code"}, headers={"Origin": "http://testserver"}).status_code
-        == 200
-    )
+    assert client.post("/api/logout", headers={"Origin": "http://testserver"}).status_code == 200
+    assert "unlocked" not in client.get("/api/session").json()
 
 
 def test_document_and_job_ownership_delete_and_expiry(client):
@@ -137,7 +133,6 @@ def test_document_and_job_ownership_delete_and_expiry(client):
     assert client.get(f"/api/documents/{doc}/pages/1").status_code == 200
     assert client.get(f"/api/documents/{doc}/pages/2").status_code == 404
     other = TestClient(main.app)
-    other.post("/api/unlock", json={"code": "test-code"})
     assert other.get(f"/api/documents/{doc}/pages/1").status_code == 404
     assert other.delete(f"/api/documents/{doc}").status_code == 404
     main.jobs["private-job"] = {"owner": main.documents[doc].owner, "status": "done", "created": time.monotonic()}
@@ -216,12 +211,13 @@ def test_capacity_rate_limit_and_logout(client):
     main.jobs["busy"] = {"owner": main.documents[docs[0]].owner, "status": "pending", "created": time.monotonic()}
     assert client.post("/api/ask", json={"document_id": docs[0], "question": "Budget?"}).status_code == 409
     main.jobs.clear()
-    bucket = main.hashlib.sha256(b"test-code").hexdigest()
-    main.usage[bucket].extend([time.monotonic()] * 60)
+    main.usage["global"].extend([time.monotonic()] * 60)
     assert client.post("/api/ask", json={"document_id": docs[0], "question": "Budget?"}).status_code == 429
     assert client.post("/api/logout").status_code == 200
     assert not main.documents
-    assert client.get("/api/session").json()["unlocked"] is False
+    assert client.get("/api/session").status_code == 200
+    assert client.get(f"/api/documents/{docs[0]}/pages/1").status_code == 404
+    assert upload(client)
 
 
 @pytest.mark.parametrize("status", [400, 401, 403, 404, 429, 500])

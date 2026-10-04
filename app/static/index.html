@@ -6,11 +6,10 @@
   <script src="/static/app.js" defer></script>
 </head>
 <body>
-  <header><a href="/" class="brand">PDF<span>/</span> Hỏi đáp</a><div class="header-meta"><span id="model">Đang đọc cấu hình…</span><button id="logout" class="quiet" hidden>Đóng phiên</button></div></header>
+  <header><a href="/" class="brand">PDF<span>/</span> Hỏi đáp</a><div class="header-meta"><span id="model">Đang đọc cấu hình…</span><button id="logout" class="quiet" >Xóa phiên</button></div></header>
   <main>
     <section class="intro"><p class="eyebrow">ĐỌC TÀI LIỆU · KIỂM TRA NGUỒN</p><h1>Câu trả lời bắt đầu<br>từ tài liệu của bạn.</h1><p>Tải PDF, đặt câu hỏi hoặc giải bài tập trong file.<br>Mỗi câu trả lời có dẫn chứng để bạn đối chiếu.</p></section>
-    <section id="unlock-panel" class="unlock"><form id="unlock-form"><label for="access-code">Mã truy cập</label><div class="inline"><input id="access-code" type="password" autocomplete="current-password" placeholder="Nhập mã truy cập app" required maxlength="200"><button type="submit">Mở app</button></div><p class="hint">Mã truy cập do người quản lý app cung cấp.</p></form></section>
-    <div id="workspace" class="workspace" hidden>
+    <div id="workspace" class="workspace">
       <aside class="document-panel"><p class="eyebrow">01 / TÀI LIỆU</p><h2>Chọn một PDF</h2>
         <label class="dropzone" id="dropzone" for="pdf-file"><span class="file-symbol">PDF</span><strong>Kéo file vào đây</strong><span>hoặc bấm để chọn file</span><small>PDF có văn bản · tối đa 10 MB / 30 trang</small><input id="pdf-file" type="file" accept=".pdf,application/pdf"></label>
         <div id="document-info" hidden><h3 id="filename"></h3><p id="filemeta" class="hint"></p><ul id="warnings" class="warnings"></ul><button id="delete-file" class="quiet">Xóa tài liệu</button></div>

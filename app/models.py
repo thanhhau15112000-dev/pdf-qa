@@ -39,6 +39,3 @@ class AskRequest(BaseModel):
     mode: Literal["ask", "solve"] = "ask"
     context_question: str = Field(default="", max_length=2000)
 
-
-class UnlockRequest(BaseModel):
-    code: str = Field(min_length=1, max_length=200)

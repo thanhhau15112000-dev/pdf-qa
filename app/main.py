@@ -19,7 +19,7 @@ from starlette.concurrency import run_in_threadpool
 from starlette.middleware.sessions import SessionMiddleware
 
 from .llm import ProviderError, answer_pdf, provider_settings
-from .models import AskRequest, UnlockRequest
+from .models import AskRequest
 from .pdf import MAX_BYTES, InvalidPDF, extract_pdf
 
 BASE = Path(__file__).resolve().parent.parent
@@ -29,7 +29,6 @@ documents = {}
 jobs = {}
 answers = {}  # Answer cache: identical PDF + question costs no provider quota.
 tasks = set()
-attempts = defaultdict(deque)
 usage = defaultdict(deque)
 
 
@@ -50,7 +49,7 @@ def cleanup():
             created = collection[key].created if collection is documents else collection[key]["created"]
             if created < cutoff:
                 del collection[key]
-    for collection in (attempts, usage):
+    for collection in (usage,):
         for key in list(collection):
             while collection[key] and collection[key][0] < cutoff:
                 collection[key].popleft()
@@ -60,8 +59,8 @@ def cleanup():
 
 @asynccontextmanager
 async def lifespan(app):
-    if not os.getenv("APP_ACCESS_CODE") or not os.getenv("SESSION_SECRET"):
-        raise RuntimeError("Cần cấu hình APP_ACCESS_CODE và SESSION_SECRET trong .env / Render Environment.")
+    if not os.getenv("SESSION_SECRET"):
+        raise RuntimeError("Cần cấu hình SESSION_SECRET trong .env / Render Environment.")
     yield
     for task in tuple(tasks):
         task.cancel()
@@ -95,9 +94,8 @@ async def headers(request: Request, call_next):
 
 
 def owner(request: Request) -> str:
-    if not request.session.get("unlocked"):
-        raise HTTPException(401, "Nhập mã truy cập để sử dụng app.")
     cleanup()
+    request.session.setdefault("owner", secrets.token_urlsafe(24))
     return request.session["owner"]
 
 
@@ -108,26 +106,10 @@ def health():
 
 @app.get("/api/session")
 def session(request: Request):
+    owner(request)
     provider, model = provider_settings()
-    return {"unlocked": bool(request.session.get("unlocked")), "provider": provider, "model": model}
+    return {"provider": provider, "model": model}
 
-
-@app.post("/api/unlock")
-def unlock(body: UnlockRequest, request: Request):
-    cleanup()
-    address = request.client.host if request.client else "unknown"
-    now = time.monotonic()
-    history = attempts[address]
-    while history and history[0] < now - 60:
-        history.popleft()
-    if len(history) >= 10:
-        raise HTTPException(429, "Nhập mã sai quá nhiều lần. Hãy thử lại sau 1 phút.")
-    history.append(now)
-    if not secrets.compare_digest(body.code.encode("utf-8"), os.getenv("APP_ACCESS_CODE", "").encode("utf-8")):
-        raise HTTPException(401, "Mã truy cập không đúng.")
-    request.session["unlocked"] = True
-    request.session.setdefault("owner", secrets.token_urlsafe(24))
-    return {"ok": True}
 
 
 @app.post("/api/logout")
@@ -229,9 +211,8 @@ async def ask(body: AskRequest, identity: str = Depends(owner)):
         job_id = secrets.token_urlsafe(24)
         jobs[job_id] = {"owner": identity, "status": "done", "created": now, "result": answers[cache_key]["result"]}
         return {"job_id": job_id}
-    # One access code is intentionally shared; the global limit also bounds new-session bypass.
-    code_bucket = hashlib.sha256(os.getenv("APP_ACCESS_CODE", "").encode()).hexdigest()
-    history = usage[code_bucket]
+    # Global quota remains shared across anonymous sessions.
+    history = usage["global"]
     while history and history[0] < now - 3600:
         history.popleft()
     if len(history) >= 60:

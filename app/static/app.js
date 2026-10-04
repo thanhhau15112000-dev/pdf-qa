@@ -25,7 +25,6 @@ async function api(path, options = {}) {
   let data;
   try { data = await response.json(); } catch { throw new Error("Server chưa sẵn sàng. Hãy chờ rồi thử lại."); }
   if (!response.ok) {
-    if (response.status === 401 && path !== "/api/unlock") { $("unlock-panel").hidden = false; $("workspace").hidden = true; }
     throw new Error(typeof data.detail === "string" ? data.detail : "Dữ liệu không hợp lệ. Hãy kiểm tra lại.");
   }
   return data;
@@ -155,12 +154,6 @@ async function ask(mode) {
   } catch (error) { showError(error.message); }
   finally { setBusy(false); }
 }
-$("unlock-form").addEventListener("submit", async (event) => {
-  event.preventDefault(); showError();
-  const button = event.currentTarget.querySelector("button"); button.disabled = true;
-  try { await api("/api/unlock", jsonOptions({code: $("access-code").value})); $("access-code").value = ""; $("unlock-panel").hidden = true; $("workspace").hidden = false; $("logout").hidden = false; }
-  catch (error) { showError(error.message); } finally { button.disabled = false; }
-});
 $("pdf-file").addEventListener("change", (event) => upload(event.target.files[0]));
 const dropzone = $("dropzone");
 for (const name of ["dragenter", "dragover"]) dropzone.addEventListener(name, (event) => { event.preventDefault(); dropzone.classList.add("dragover"); });
@@ -179,14 +172,13 @@ $("delete-file").addEventListener("click", async () => {
 });
 $("logout").addEventListener("click", async () => {
   showError();
-  try { await api("/api/logout", {method: "POST"}); resetDocument(); $("workspace").hidden = true; $("unlock-panel").hidden = false; $("logout").hidden = true; }
+  try { await api("/api/logout", {method: "POST"}); resetDocument(); }
   catch (error) { showError(error.message); }
 });
 $("close-source").addEventListener("click", () => $("source-dialog").close());
 api("/api/session").then((session) => {
   $("model").textContent = `${(session.provider || "").toUpperCase()} · ${session.model}`;
-  $("unlock-panel").hidden = session.unlocked;
-  $("workspace").hidden = !session.unlocked;
-  $("logout").hidden = !session.unlocked;
+  $("workspace").hidden = false;
+  $("logout").hidden = false;
   setBusy(false);
 }).catch((error) => showError(error.message));

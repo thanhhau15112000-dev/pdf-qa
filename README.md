@@ -1,13 +1,15 @@
 # PDF Hỏi đáp
 
+App: [https://pdf-qa-hic0.onrender.com/](https://pdf-qa-hic0.onrender.com/). Mở trực tiếp, không cần mã truy cập.
+
 Một service Python/FastAPI phục vụ cả frontend HTML/CSS/JS và API. Model chính `openai/gpt-oss-120b` trên Groq (nhóm production, strict structured outputs). Gemini là dự phòng; nhãn production không chứng minh mọi đáp án đúng. Không cần Node, database hay vector store.
 
 ## Chạy local
 
 1. Cài Python 3.12 trở lên.
-2. Copy `.env.example` thành `.env`, đặt `GROQ_API_KEY`, (tùy chọn `GEMINI_API_KEY` để dự phòng), `APP_ACCESS_CODE` và `SESSION_SECRET` (chuỗi ngẫu nhiên tối thiểu 32 ký tự). Giữ `SECURE_COOKIES=false` khi chạy HTTP local.
+2. Copy `.env.example` thành `.env`, đặt `GROQ_API_KEY`, (tùy chọn `GEMINI_API_KEY` để dự phòng), `SESSION_SECRET` (chuỗi ngẫu nhiên tối thiểu 32 ký tự). Giữ `SECURE_COOKIES=false` khi chạy HTTP local.
 3. Chạy `powershell -ExecutionPolicy Bypass -File .\start.ps1`.
-4. Mở http://127.0.0.1:8000 và nhập mã truy cập.
+4. Mở http://127.0.0.1:8000 và tải PDF.
 
 API key chỉ nằm ở server, không đưa vào frontend hoặc Git. Không chia sẻ `.env`.
 
@@ -15,7 +17,7 @@ API key chỉ nằm ở server, không đưa vào frontend hoặc Git. Không ch
 
 Một Python Web Service, region Singapore, plan Free. Build `pip install -r requirements.lock`; start `uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1`. Health check `/api/health`.
 
-Thiết lập Environment theo `render.yaml`: `GROQ_API_KEY`, `GROQ_MODEL=openai/gpt-oss-120b`, `LLM_PROVIDER=groq`, `LLM_FALLBACK=true`, tùy chọn `GEMINI_API_KEY`, `GEMINI_MODEL=gemini-3.8-flash`, `APP_ACCESS_CODE`, `SESSION_SECRET`, `SECURE_COOKIES=true`, `PYTHON_VERSION=3.12.7`. Có thể dùng Blueprint với repo riêng tư hoặc tạo Web Service qua dashboard.
+Thiết lập Environment theo `render.yaml`: `GROQ_API_KEY`, `GROQ_MODEL=openai/gpt-oss-120b`, `LLM_PROVIDER=groq`, `LLM_FALLBACK=true`, tùy chọn `GEMINI_API_KEY`, `GEMINI_MODEL=gemini-3.8-flash`, `SESSION_SECRET`, `SECURE_COOKIES=true`, `PYTHON_VERSION=3.12.7`. Có thể dùng Blueprint với repo riêng tư hoặc tạo Web Service qua dashboard.
 
 Không thêm nhiều workers/instances: tài liệu và jobs đang giữ trong RAM của một process. Render Free có thể ngủ khi không dùng; lúc khởi động lại phải tải lại PDF. Không cần persistent disk.
 
@@ -33,8 +35,8 @@ Không thêm nhiều workers/instances: tài liệu và jobs đang giữ trong R
 - Kiểm tra trích dẫn chỉ chứng minh đoạn trích tồn tại, không chứng minh nó hỗ trợ đúng kết luận. Prompt không bảo đảm loại bỏ hoàn toàn bịa/sai hoặc prompt injection.
 - Bài tập có thể dùng phương pháp phổ thông, luôn gắn nhãn suy luận/lời giải. Không tự nhận là đáp án chính thức.
 - PDF scan cần OCR trước; hình/biểu đồ chưa phân tích, bảng phức tạp có thể mất bố cục khi trích văn bản. Trang nguồn là số trang vật lý, bắt đầu từ 1.
-- Phiên riêng qua cookie ký, mã truy cập, nguồn request cùng origin. Tối đa 60 lượt hỏi/giờ toàn app, 4 lượt chạy đồng thời, mỗi phiên 1 lượt; 3 PDF/phiên, 30 PDF/server. Nội dung giữ tối đa 2 giờ (dọn khi có request), mất khi restart.
-- Đây là app nhỏ dùng mã chung; không có tài khoản cá nhân, RBAC hay cam kết bảo mật doanh nghiệp. Nội dung gửi tới Groq/Gemini chịu điều khoản của nhà cung cấp tương ứng.
+- Phiên riêng qua cookie ký, nguồn request cùng origin. Tối đa 60 lượt hỏi/giờ toàn app, 4 lượt chạy đồng thời, mỗi phiên 1 lượt; 3 PDF/phiên, 30 PDF/server. Nội dung giữ tối đa 2 giờ (dọn khi có request), mất khi restart.
+- Đây là app công khai dùng phiên ẩn danh; không có tài khoản cá nhân, RBAC hay cam kết bảo mật doanh nghiệp. Nội dung gửi tới Groq/Gemini chịu điều khoản của nhà cung cấp tương ứng.
 
 ## Kiểm tra
 
