@@ -21,9 +21,10 @@ Không thêm nhiều workers/instances: tài liệu và jobs đang giữ trong R
 
 ## Phạm vi và kiểm soát câu trả lời
 
-- Upload PDF có văn bản, tối đa 10 MB, 80 trang, 180.000 ký tự; không cắt ngầm phần vượt giới hạn.
+- Upload PDF có văn bản, tối đa 10 MB, 30 trang, 180.000 ký tự; không cắt ngầm phần vượt giới hạn khi upload.
 - Hỏi về tài liệu hoặc tìm/giải tối đa 12 câu hỏi đầu tiên. Hỏi câu cụ thể để giải tiếp phần còn lại.
-- Gửi toàn bộ văn bản đọc được đến nhà cung cấp đang dùng mỗi lượt; không dùng kết quả tìm kiếm một phần để kết luận rằng toàn bộ tài liệu không có thông tin.
+- PDF đến 10.000 ký tự: gửi toàn bộ văn bản mỗi lượt. PDF dài hơn: RAG từ khóa (`app/retrieval.py`), chia chunk theo trang/dòng (tối đa 800 ký tự), xếp hạng BM25 không phân biệt dấu, gửi các chunk liên quan nhất trong ngân sách 10.000 ký tự; câu hỏi có "trang N" ưu tiên trang đó; chế độ giải bài lấy các đoạn chứa "Câu/Bài + số" theo thứ tự tài liệu. Ngân sách đo theo Groq free tier (8.000 token/phút/request, tiếng Việt khoảng 0,32 token/ký tự). Khi chỉ gửi đoạn trích, notice ghi trang đã gửi và câu trả lời thiếu dữ kiện chỉ nói các đoạn đã truy xuất chưa chứa thông tin. Câu hỏi tóm tắt toàn bộ hoặc diễn đạt khác từ ngữ tài liệu có thể bỏ sót trên PDF dài.
+- Cache câu trả lời trong RAM theo nội dung PDF + chế độ + câu hỏi (tối đa 200 mục, 2 giờ); hỏi lại cùng câu không gọi provider và không tính vào giới hạn lượt hỏi.
 - System prompt: `app/system_prompt.txt`; bộ 11 ví dụ chuẩn: `app/common_examples.json`.
 - JSON schema tách dữ kiện, suy luận, thiếu thông tin và mâu thuẫn. Backend kiểm tra số trang và nguyên văn trích dẫn; nếu không khớp, chặn cả phần trả lời liên quan.
 - Groq nhận JSON schema strict; backend tiếp tục kiểm tra kiểu dữ liệu, giới hạn độ dài, trang/nguyên văn nguồn, trích dẫn trùng và số liệu mới trong câu trả lời supported. Phép tính phải gắn inference; không kiểm chứng tự động tính đúng của mọi phép tính hoặc quan hệ ngữ nghĩa.

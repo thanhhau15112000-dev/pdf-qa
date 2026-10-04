@@ -1,5 +1,6 @@
 import asyncio
 import hashlib
+import json
 import logging
 import os
 import secrets
@@ -26,6 +27,7 @@ load_dotenv(BASE / ".env")
 TTL = 7200
 documents = {}
 jobs = {}
+answers = {}  # Answer cache: identical PDF + question costs no provider quota.
 tasks = set()
 attempts = defaultdict(deque)
 usage = defaultdict(deque)
@@ -38,11 +40,12 @@ class Document:
     pages: list[str]
     warnings: list[str]
     created: float
+    digest: str
 
 
 def cleanup():
     cutoff = time.monotonic() - TTL
-    for collection in (documents, jobs):
+    for collection in (documents, jobs, answers):
         for key in list(collection):
             created = collection[key].created if collection is documents else collection[key]["created"]
             if created < cutoff:
@@ -156,7 +159,8 @@ async def upload(file: UploadFile, identity: str = Depends(owner)):
         raise HTTPException(409, "Đã đạt giới hạn lưu PDF. Hãy xóa file cũ.")
     name = Path((file.filename or "document.pdf").replace("\\", "/")).name[:200]
     document_id = secrets.token_urlsafe(24)
-    documents[document_id] = Document(identity, name, pages, warnings, time.monotonic())
+    digest = hashlib.sha256(data).hexdigest()
+    documents[document_id] = Document(identity, name, pages, warnings, time.monotonic(), digest)
     return {
         "id": document_id,
         "name": name,
@@ -188,7 +192,7 @@ def delete(document_id: str, identity: str = Depends(owner)):
     return {"ok": True}
 
 
-async def run_job(job_id, pages, question, mode, context_question=""):
+async def run_job(job_id, pages, question, mode, context_question="", cache_key=""):
     try:
         result = (
             await answer_pdf(pages, question, mode, context_question)
@@ -196,6 +200,10 @@ async def run_job(job_id, pages, question, mode, context_question=""):
             else await answer_pdf(pages, question, mode)
         )
         jobs[job_id].update(status="done", result=result.model_dump())
+        if cache_key:
+            if len(answers) >= 200:
+                del answers[next(iter(answers))]
+            answers[cache_key] = {"created": time.monotonic(), "result": jobs[job_id]["result"]}
     except ProviderError as exc:
         jobs[job_id].update(status="error", error=str(exc))
     except Exception as exc:
@@ -213,6 +221,14 @@ async def ask(body: AskRequest, identity: str = Depends(owner)):
     if sum(job["status"] == "pending" for job in jobs.values()) >= 4:
         raise HTTPException(503, "Server đang bận. Hãy thử lại sau.")
     now = time.monotonic()
+    question, context = body.question.strip(), body.context_question.strip()
+    cache_key = hashlib.sha256(
+        json.dumps([document.digest, body.mode, question if body.mode == "ask" else "", context]).encode()
+    ).hexdigest()
+    if cache_key in answers:
+        job_id = secrets.token_urlsafe(24)
+        jobs[job_id] = {"owner": identity, "status": "done", "created": now, "result": answers[cache_key]["result"]}
+        return {"job_id": job_id}
     # One access code is intentionally shared; the global limit also bounds new-session bypass.
     code_bucket = hashlib.sha256(os.getenv("APP_ACCESS_CODE", "").encode()).hexdigest()
     history = usage[code_bucket]
@@ -223,9 +239,7 @@ async def ask(body: AskRequest, identity: str = Depends(owner)):
     history.append(now)
     job_id = secrets.token_urlsafe(24)
     jobs[job_id] = {"owner": identity, "status": "pending", "created": now}
-    task = asyncio.create_task(
-        run_job(job_id, document.pages, body.question.strip(), body.mode, body.context_question.strip())
-    )
+    task = asyncio.create_task(run_job(job_id, document.pages, question, body.mode, context, cache_key))
     tasks.add(task)
     task.add_done_callback(tasks.discard)
     return {"job_id": job_id}

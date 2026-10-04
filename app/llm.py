@@ -9,6 +9,7 @@ from pydantic import ValidationError
 
 from .models import Answer, AnswerResult
 from .pdf import verify_answer
+from .retrieval import select_context
 
 ROOT = Path(__file__).parent
 SYSTEM = (ROOT / "system_prompt.txt").read_text(encoding="utf-8")
@@ -133,12 +134,14 @@ async def request_provider(provider, model, content):
 
 async def answer_pdf(pages: list[str], question: str, mode: str, context_question: str = "") -> AnswerResult:
     provider, model = provider_settings()
+    pdf_pages, excerpted = select_context(pages, f"{question} {context_question}", mode)
     content = json.dumps(
         {
             "mode": mode,
             "question": question if mode == "ask" else "Tìm và giải tối đa 12 câu hỏi/bài tập đầu tiên trong PDF.",
             "original_question": context_question,
-            "pdf_pages": [{"page": i + 1, "text": text} for i, text in enumerate(pages)],
+            "pdf_scope": "excerpts" if excerpted else "full",
+            "pdf_pages": pdf_pages,
         },
         ensure_ascii=False,
     )
@@ -158,8 +161,13 @@ async def answer_pdf(pages: list[str], question: str, mode: str, context_questio
             raise ProviderError(f"{first} Dự phòng cũng thất bại: {second}") from second
         provider, model, used_fallback = alternate, fallback_model, True
     answer = verify_answer(answer, pages)
+    notes = []
     if used_fallback:
-        answer.notice = (
-            "Đã dùng nhà cung cấp dự phòng vì lỗi dịch vụ hoặc giới hạn lượt gọi. " + answer.notice[:1400]
-        ).strip()
+        notes.append("Đã dùng nhà cung cấp dự phòng vì lỗi dịch vụ hoặc giới hạn lượt gọi.")
+    if excerpted:
+        used_pages = ", ".join(str(item["page"]) for item in pdf_pages)
+        notes.append(
+            f"PDF dài: chỉ gửi các đoạn liên quan ở trang {used_pages}. Nếu thiếu, hãy nêu rõ trang hoặc từ khóa."
+        )
+    answer.notice = " ".join([*notes, answer.notice]).strip()[:1500]
     return AnswerResult(**answer.model_dump(), provider=provider, model=model)

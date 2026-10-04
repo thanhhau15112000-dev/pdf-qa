@@ -61,6 +61,7 @@ def client(monkeypatch):
     monkeypatch.setenv("APP_ACCESS_CODE", "test-code")
     main.documents.clear()
     main.jobs.clear()
+    main.answers.clear()
     main.attempts.clear()
     main.usage.clear()
     with TestClient(main.app) as client:
@@ -165,6 +166,21 @@ def test_ask_and_solve_job(client, monkeypatch):
         assert state["status"] == "done"
         assert state["result"]["items"][0]["answer"] == "120 USD"
     assert [item[1] for item in seen] == ["ask", "solve"]
+
+
+def test_repeated_question_is_served_from_cache(client, monkeypatch):
+    calls = []
+
+    async def fake(pages, question, mode):
+        calls.append(question)
+        return answer()
+
+    monkeypatch.setattr(main, "answer_pdf", fake)
+    doc = upload(client)
+    for question in ("Budget?", "  Budget?  ", "Deadline?"):
+        response = client.post("/api/ask", json={"document_id": doc, "question": question})
+        assert poll(client, response.json()["job_id"])["result"]["items"][0]["answer"] == "120 USD"
+    assert calls == ["Budget?", "Deadline?"]
 
 
 def test_provider_error_is_user_visible_without_secret(client, monkeypatch):

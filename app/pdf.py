@@ -5,7 +5,7 @@ import unicodedata
 from pypdf import PdfReader
 
 MAX_BYTES = 10 * 1024 * 1024
-MAX_PAGES = 80
+MAX_PAGES = 30
 MAX_CHARS = 180_000
 
 
@@ -27,7 +27,7 @@ def extract_pdf(data: bytes) -> tuple[list[str], list[str]]:
         if reader.is_encrypted:
             raise InvalidPDF("PDF có mật khẩu. Hãy tải bản đã bỏ mật khẩu.")
         if not 1 <= len(reader.pages) <= MAX_PAGES:
-            raise InvalidPDF("PDF cần có 1–80 trang. Hãy chia file lớn thành phần nhỏ.")
+            raise InvalidPDF("PDF cần có 1–30 trang. Hãy chia file lớn thành phần nhỏ.")
         pages = []
         total = 0
         for page in reader.pages:
@@ -94,5 +94,7 @@ def verify_answer(answer, pages: list[str]):
             if not item.clarifying_question:
                 item.clarifying_question = "Bạn có thể chỉ rõ câu/trang cần hỏi hoặc bổ sung dữ kiện còn thiếu không?"
     if rejected:
-        answer.notice = "Một số phần bị chặn vì nguồn, số liệu hoặc giả định chưa được xác minh."
+        answer.notice = (
+            "Một số phần bị chặn vì nguồn, số liệu hoặc giả định chưa được xác minh. " + answer.notice
+        ).strip()
     return answer
