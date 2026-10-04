@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import re
 from pathlib import Path
@@ -118,7 +119,15 @@ async def request_provider(provider, model, content):
                 raise ProviderError(f"{name} không hoàn tất câu trả lời. Hãy hỏi ngắn hơn hoặc chia nhỏ PDF.")
             result = "".join(part["text"] for part in outputs[-1]["content"] if part.get("type") == "text")
         return Answer.model_validate_json(result)
-    except (ValueError, KeyError, IndexError, TypeError, AttributeError, ValidationError) as exc:
+    except ValidationError as exc:
+        # Only field locations and error categories: no PDF, answer, key or reasoning in logs.
+        logging.getLogger(__name__).warning(
+            "%s invalid answer fields: %s",
+            name,
+            [(error["loc"], error["type"]) for error in exc.errors(include_input=False)],
+        )
+        raise ProviderError(f"{name} trả về dữ liệu không đúng cấu trúc. Hãy thử lại.") from exc
+    except (ValueError, KeyError, IndexError, TypeError, AttributeError) as exc:
         raise ProviderError(f"{name} trả về dữ liệu không đúng cấu trúc. Hãy thử lại.") from exc
 
 

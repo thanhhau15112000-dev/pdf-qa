@@ -145,6 +145,8 @@ def test_invalid_or_truncated_output_never_regenerates(monkeypatch, body):
         {"status": "conflict", "citations": [Citation(page=1, quote="Budget is 120 USD.")] * 2},
         {"status": "supported", "missing_information": ["Tên dự án"], "answer": "I guess 120 USD"},
         {"status": "insufficient", "answer": "I guess 120 USD"},
+        {"status": "insufficient", "answer": ""},
+        {"status": "supported", "answer": ""},
         {"assumptions": ["Assume budget"]},
     ],
 )

@@ -13,7 +13,7 @@ class AnswerItem(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, str_strip_whitespace=True)
     title: str = Field(min_length=1, max_length=300)
     status: Literal["supported", "inference", "insufficient", "conflict"]
-    answer: str = Field(min_length=1, max_length=6000)
+    answer: str = Field(max_length=6000)
     citations: list[Citation] = Field(max_length=8)
     missing_information: list[Annotated[str, Field(min_length=1, max_length=500)]] = Field(
         default_factory=list, max_length=8

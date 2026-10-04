@@ -69,7 +69,16 @@ def verify_answer(answer, pages: list[str]):
         unsupported_number = item.status == "supported" and not numbers(item.answer).issubset(numbers(quotes))
         unsupported_url = any(url not in quotes for url in re.findall(r"https?://[^\s<>]+", item.answer))
         unlabelled_assumptions = bool(item.assumptions) and item.status != "inference"
-        if bad_quote or missing or conflict_missing or unsupported_number or unsupported_url or unlabelled_assumptions:
+        empty_answer = item.status != "insufficient" and not item.answer.strip()
+        if (
+            bad_quote
+            or missing
+            or conflict_missing
+            or unsupported_number
+            or unsupported_url
+            or unlabelled_assumptions
+            or empty_answer
+        ):
             rejected += 1
             item.status = "insufficient"
             item.citations = []
