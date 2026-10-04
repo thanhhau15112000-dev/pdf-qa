@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PDF Hỏi đáp</title><link rel="stylesheet" href="/static/style.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <header><a href="/" class="brand">PDF<span>/</span> Hỏi đáp</a><div class="header-meta"><span id="model">gemini-3.8-flash</span><button id="logout" class="quiet" hidden>Đóng phiên</button></div></header>
+  <main>
+    <section class="intro"><p class="eyebrow">ĐỌC TÀI LIỆU · KIỂM TRA NGUỒN</p><h1>Câu trả lời bắt đầu<br>từ tài liệu của bạn.</h1><p>Tải PDF, đặt câu hỏi hoặc giải bài tập trong file.<br>Mỗi câu trả lời có dẫn chứng để bạn đối chiếu.</p></section>
+    <section id="unlock-panel" class="unlock"><form id="unlock-form"><label for="access-code">Mã truy cập</label><div class="inline"><input id="access-code" type="password" autocomplete="current-password" placeholder="Nhập mã truy cập app" required maxlength="200"><button type="submit">Mở app</button></div><p class="hint">Mã truy cập do người quản lý app cung cấp.</p></form></section>
+    <div id="workspace" class="workspace" hidden>
+      <aside class="document-panel"><p class="eyebrow">01 / TÀI LIỆU</p><h2>Chọn một PDF</h2>
+        <label class="dropzone" id="dropzone" for="pdf-file"><span class="file-symbol">PDF</span><strong>Kéo file vào đây</strong><span>hoặc bấm để chọn file</span><small>PDF có văn bản · tối đa 10 MB / 80 trang</small><input id="pdf-file" type="file" accept=".pdf,application/pdf"></label>
+        <div id="document-info" hidden><h3 id="filename"></h3><p id="filemeta" class="hint"></p><ul id="warnings" class="warnings"></ul><button id="delete-file" class="quiet">Xóa tài liệu</button></div>
+        <div class="privacy"><strong>Chỉ gửi khi bạn hỏi</strong><p>Văn bản PDF được gửi đến Gemini để xử lý câu hỏi. File giữ tạm trong phiên, tối đa 2 giờ; khởi động lại server sẽ xóa phiên tài liệu.</p></div>
+      </aside>
+      <section class="question-panel"><p class="eyebrow">02 / CÂU HỎI</p><h2>Bạn cần tìm gì?</h2>
+        <div class="suggestions"><button data-question="Tóm tắt các ý chính trong tài liệu, kèm trang nguồn.">Tóm tắt ý chính</button><button data-question="Liệt kê các số liệu quan trọng và ý nghĩa của chúng, kèm trang nguồn.">Tìm số liệu</button><button data-question="Tài liệu có thông tin nào mâu thuẫn hoặc còn thiếu? Nêu dẫn chứng.">Kiểm tra mâu thuẫn</button></div>
+        <form id="question-form"><label for="question" class="sr-only">Câu hỏi về PDF</label><textarea id="question" maxlength="2000" rows="4" placeholder="Ví dụ: Giải câu 2 ở trang 3, nêu dữ kiện và cách tính." disabled></textarea><div class="actions"><span class="hint">Thiếu dữ kiện, app sẽ nói rõ.</span><button id="ask-button" type="submit" disabled>Hỏi tài liệu</button></div></form>
+        <button id="solve-button" class="secondary" disabled>Giải các câu hỏi trong PDF <span>tối đa 12 câu / lượt</span></button>
+        <div id="activity" class="activity" role="status" hidden></div>
+        <div id="results" class="results" aria-live="polite"><div class="empty-state"><span>NGUỒN TRƯỚC, KẾT LUẬN SAU.</span><p>Câu trả lời và trích dẫn theo trang<br>sẽ xuất hiện ở đây.</p></div></div>
+      </section>
+    </div>
+    <div id="error" class="error" role="alert" hidden></div>
+    <footer><span>PDF Hỏi đáp</span><span>Trích dẫn khớp văn bản không đảm bảo mọi suy luận đều đúng. Hãy kiểm tra đáp án quan trọng.</span></footer>
+  </main>
+  <dialog id="source-dialog"><div class="dialog-head"><h2 id="source-title">Nguồn trích dẫn</h2><button id="close-source" class="quiet">Đóng</button></div><pre id="source-text"></pre></dialog>
+</body>
+</html>
