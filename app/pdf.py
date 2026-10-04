@@ -50,22 +50,40 @@ def extract_pdf(data: bytes) -> tuple[list[str], list[str]]:
 
 
 def verify_answer(answer, pages: list[str]):
-    """Reject an entire item if any claimed quote/page is invalid; never hide bad sources."""
+    """Conservative checks of sources and literal numbers, not semantic entailment."""
     rejected = 0
     for item in answer.items:
+        unique = {(c.page, normalize(c.quote)): c for c in item.citations}
+        item.citations = list(unique.values())
         bad_quote = any(
             citation.page > len(pages) or normalize(citation.quote) not in normalize(pages[citation.page - 1])
             for citation in item.citations
         )
         missing = item.status != "insufficient" and not item.citations
         conflict_missing = item.status == "conflict" and len(item.citations) < 2
-        if bad_quote or missing or conflict_missing:
+        quotes = " ".join(c.quote for c in item.citations)
+
+        def numbers(text):
+            return set(re.findall(r"[+-]?\d+(?:[.,]\d+)*", normalize(text)))
+
+        unsupported_number = item.status == "supported" and not numbers(item.answer).issubset(numbers(quotes))
+        unsupported_url = any(url not in quotes for url in re.findall(r"https?://[^\s<>]+", item.answer))
+        unlabelled_assumptions = bool(item.assumptions) and item.status != "inference"
+        if bad_quote or missing or conflict_missing or unsupported_number or unsupported_url or unlabelled_assumptions:
             rejected += 1
             item.status = "insufficient"
-            item.answer = (
-                "Không thể xác minh nguồn cho phần trả lời này. Hãy hỏi lại cụ thể hơn hoặc kiểm tra trang liên quan."
-            )
             item.citations = []
+            item.missing_information = ["Dẫn chứng hợp lệ hỗ trợ kết luận"]
+            item.clarifying_question = "Bạn có thể chỉ rõ câu hoặc trang chứa dữ kiện cần dùng không?"
+        if item.missing_information or item.clarifying_question:
+            item.status = "insufficient"
+        if item.status == "insufficient":
+            item.answer = "Chưa đủ thông tin để kết luận. Cần làm rõ hoặc bổ sung dữ kiện trước khi trả lời."
+            item.assumptions = []
+            if not item.missing_information:
+                item.missing_information = ["Dữ kiện cần thiết trong tài liệu hoặc phạm vi câu hỏi"]
+            if not item.clarifying_question:
+                item.clarifying_question = "Bạn có thể chỉ rõ câu/trang cần hỏi hoặc bổ sung dữ kiện còn thiếu không?"
     if rejected:
-        answer.notice = "Một số phần bị chặn vì thiếu nguồn hoặc trích dẫn không khớp PDF."
+        answer.notice = "Một số phần bị chặn vì nguồn, số liệu hoặc giả định chưa được xác minh."
     return answer

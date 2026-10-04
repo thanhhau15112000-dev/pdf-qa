@@ -16,6 +16,9 @@ from app.pdf import InvalidPDF, extract_pdf, verify_answer
 @pytest.fixture(autouse=True)
 def test_settings(monkeypatch):
     monkeypatch.setenv("GEMINI_API_KEY", "test-only-no-live-requests")
+    monkeypatch.setenv("GROQ_API_KEY", "test-only-no-live-requests")
+    monkeypatch.setenv("LLM_PROVIDER", "gemini")
+    monkeypatch.setenv("LLM_FALLBACK", "false")
     monkeypatch.setenv("APP_ACCESS_CODE", "test-code")
     monkeypatch.setenv("SESSION_SECRET", "test-session-secret-not-for-deployment")
 
@@ -173,6 +176,22 @@ def test_provider_error_is_user_visible_without_secret(client, monkeypatch):
     response = client.post("/api/ask", json={"document_id": doc, "question": "Budget?"})
     state = poll(client, response.json()["job_id"])
     assert state == {"status": "error", "error": "Đã hết quota"}
+
+
+def test_follow_up_passes_original_question(client, monkeypatch):
+    seen = []
+
+    async def fake(pages, question, mode, context_question):
+        seen.append((question, context_question))
+        return answer()
+
+    monkeypatch.setattr(main, "answer_pdf", fake)
+    doc = upload(client)
+    response = client.post(
+        "/api/ask", json={"document_id": doc, "question": "Project A", "context_question": "Budget?"}
+    )
+    assert poll(client, response.json()["job_id"])["status"] == "done"
+    assert seen == [("Project A", "Budget?")]
 
 
 def test_capacity_rate_limit_and_logout(client):

@@ -3,6 +3,7 @@ const $ = (id) => document.getElementById(id);
 let documentInfo = null;
 let busy = false;
 let lastResult = null;
+let clarificationContext = "";
 const labels = {supported: "Có dữ kiện trong PDF", inference: "Lời giải / suy luận", insufficient: "Chưa đủ thông tin", conflict: "Thông tin mâu thuẫn"};
 
 function showError(message = "") { $("error").textContent = message; $("error").hidden = !message; }
@@ -14,8 +15,9 @@ function setBusy(value, message = "") {
   $("pdf-file").disabled = value;
   $("delete-file").disabled = value;
   $("logout").disabled = value;
-  for (const button of document.querySelectorAll(".suggestions button")) button.disabled = value || !documentInfo;
+  for (const button of document.querySelectorAll(".suggestions button, .clarify-button, #cancel-clarification")) button.disabled = value || !documentInfo;
 }
+function clearClarification() { clarificationContext = ""; $("clarification").hidden = true; }
 async function api(path, options = {}) {
   let response;
   try { response = await fetch(path, {...options, credentials: "same-origin"}); }
@@ -36,7 +38,7 @@ function element(tag, className, text) {
   return node;
 }
 function resetDocument() {
-  documentInfo = null; lastResult = null;
+  documentInfo = null; lastResult = null; clearClarification();
   $("pdf-file").value = "";
   $("document-info").hidden = true;
   $("results").replaceChildren(element("p", "empty-state", "Tải một PDF để bắt đầu hỏi đáp."));
@@ -57,7 +59,7 @@ async function upload(file) {
     $("warnings").replaceChildren(...documentInfo.warnings.map((text) => element("li", "", text)));
     $("document-info").hidden = false;
     $("results").replaceChildren(element("p", "empty-state", "Tài liệu đã sẵn sàng. Nhập câu hỏi hoặc chọn giải bài tập."));
-    lastResult = null;
+    lastResult = null; clearClarification();
     if (previous) {
       try { await api(`/api/documents/${encodeURIComponent(previous.id)}`, {method: "DELETE"}); }
       catch { showError("File mới đã tải lên; chưa xóa được file cũ khỏi phiên."); }
@@ -74,15 +76,39 @@ async function showSource(docId, citation) {
     $("source-dialog").showModal();
   } catch (error) { showError(error.message); }
 }
-function renderAnswer(result, question, docId) {
+function renderAnswer(result, question, docId, originalQuestion = question) {
   if (!lastResult) $("results").replaceChildren();
   const group = element("article", "answer-group");
   group.append(element("p", "asked", question));
+  if (originalQuestion !== question) group.append(element("p", "hint", `Câu hỏi gốc: ${originalQuestion}`));
+  if (result.provider && result.model) group.append(element("p", "hint", `${result.provider.toUpperCase()} · ${result.model}`));
   for (const item of result.items) {
     const section = element("section", "answer-item");
     section.append(element("span", `tag ${item.status}`, labels[item.status]));
     section.append(element("h3", "", item.title));
     section.append(element("p", "", item.answer));
+    if (item.assumptions?.length) {
+      section.append(element("p", "hint", "Giả định dùng trong lời giải:"));
+      const list = element("ul", "");
+      list.append(...item.assumptions.map((text) => element("li", "", text))); section.append(list);
+    }
+    if (item.missing_information?.length) {
+      section.append(element("p", "hint", "Thông tin cần làm rõ:"));
+      const list = element("ul", "");
+      list.append(...item.missing_information.map((text) => element("li", "", text))); section.append(list);
+    }
+    if (item.clarifying_question) {
+      section.append(element("p", "", item.clarifying_question));
+      const button = element("button", "quiet clarify-button", "Bổ sung thông tin");
+      button.addEventListener("click", () => {
+        if (busy || documentInfo?.id !== docId) return;
+        clarificationContext = originalQuestion;
+        $("clarification-context").textContent = `Đang bổ sung cho: ${originalQuestion}`;
+        $("clarification-prompt").textContent = item.clarifying_question;
+        $("clarification").hidden = false; $("question").value = "";
+        $("clarification").scrollIntoView({block: "center"}); $("question").focus();
+      }); section.append(button);
+    }
     const sources = element("div", "citations");
     for (const citation of item.citations) {
       const button = element("button", "", `Trang ${citation.page} · xem nguồn`);
@@ -97,7 +123,7 @@ function renderAnswer(result, question, docId) {
   lastResult = {question, ...result};
   const download = element("button", "quiet", "Tải câu trả lời (.txt)");
   download.addEventListener("click", () => {
-    const text = [question, ...result.items.map((item) => `${item.title} [${labels[item.status]}]\n${item.answer}\n${item.citations.map((c) => `Trang ${c.page}: ${c.quote}`).join("\n")}`), result.notice].join("\n\n");
+    const text = [question, `Câu hỏi gốc: ${originalQuestion}`, `${result.provider || ""} · ${result.model || ""}`, ...result.items.map((item) => `${item.title} [${labels[item.status]}]\n${item.answer}\nGiả định: ${(item.assumptions || []).join("; ")}\nCần bổ sung: ${(item.missing_information || []).join("; ")}\n${item.clarifying_question || ""}\n${item.citations.map((c) => `Trang ${c.page}: ${c.quote}`).join("\n")}`), result.notice].join("\n\n");
     const link = document.createElement("a");
     const url = URL.createObjectURL(new Blob([text], {type: "text/plain;charset=utf-8"}));
     link.href = url; link.download = "pdf-hoi-dap.txt"; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
@@ -110,15 +136,18 @@ async function ask(mode) {
   if (mode === "ask" && !question) { showError("Hãy nhập câu hỏi."); return; }
   showError(); setBusy(true, mode === "solve" ? "Đang tìm và giải câu hỏi trong PDF…" : "Đang đọc tài liệu và đối chiếu nguồn…");
   const docId = documentInfo.id;
+  const context = mode === "ask" ? clarificationContext : "";
   try {
-    const job = await api("/api/ask", jsonOptions({document_id: docId, question, mode}));
+    const job = await api("/api/ask", jsonOptions({document_id: docId, question, mode, context_question: context}));
     const deadline = Date.now() + 130000;
     while (Date.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, 1500));
       const state = await api(`/api/jobs/${encodeURIComponent(job.job_id)}`);
       if (state.status === "error") throw new Error(state.error);
       if (state.status === "done") {
-        renderAnswer(state.result, mode === "solve" ? "Giải các câu hỏi trong PDF" : question, docId);
+        const displayed = mode === "solve" ? "Giải các câu hỏi trong PDF" : question;
+        renderAnswer(state.result, displayed, docId, context || displayed);
+        clearClarification();
         return;
       }
     }
@@ -140,7 +169,8 @@ dropzone.addEventListener("drop", (event) => upload(event.dataTransfer.files[0])
 $("question-form").addEventListener("submit", (event) => { event.preventDefault(); ask("ask"); });
 $("question").addEventListener("keydown", (event) => { if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) { event.preventDefault(); ask("ask"); } });
 $("solve-button").addEventListener("click", () => ask("solve"));
-for (const button of document.querySelectorAll(".suggestions button")) button.addEventListener("click", () => { $("question").value = button.dataset.question; $("question").focus(); });
+for (const button of document.querySelectorAll(".suggestions button")) button.addEventListener("click", () => { clearClarification(); $("question").value = button.dataset.question; $("question").focus(); });
+$("cancel-clarification").addEventListener("click", clearClarification);
 $("delete-file").addEventListener("click", async () => {
   if (!documentInfo || busy) return;
   showError(); setBusy(true, "Đang xóa tài liệu…");
@@ -154,7 +184,7 @@ $("logout").addEventListener("click", async () => {
 });
 $("close-source").addEventListener("click", () => $("source-dialog").close());
 api("/api/session").then((session) => {
-  $("model").textContent = session.model;
+  $("model").textContent = `${(session.provider || "").toUpperCase()} · ${session.model}`;
   $("unlock-panel").hidden = session.unlocked;
   $("workspace").hidden = !session.unlocked;
   $("logout").hidden = !session.unlocked;

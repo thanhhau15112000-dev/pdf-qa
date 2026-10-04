@@ -17,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 from starlette.middleware.sessions import SessionMiddleware
 
-from .llm import ProviderError, answer_pdf
+from .llm import ProviderError, answer_pdf, provider_settings
 from .models import AskRequest, UnlockRequest
 from .pdf import MAX_BYTES, InvalidPDF, extract_pdf
 
@@ -105,7 +105,8 @@ def health():
 
 @app.get("/api/session")
 def session(request: Request):
-    return {"unlocked": bool(request.session.get("unlocked")), "model": os.getenv("GEMINI_MODEL", "gemini-3.8-flash")}
+    provider, model = provider_settings()
+    return {"unlocked": bool(request.session.get("unlocked")), "provider": provider, "model": model}
 
 
 @app.post("/api/unlock")
@@ -187,9 +188,13 @@ def delete(document_id: str, identity: str = Depends(owner)):
     return {"ok": True}
 
 
-async def run_job(job_id, pages, question, mode):
+async def run_job(job_id, pages, question, mode, context_question=""):
     try:
-        result = await answer_pdf(pages, question, mode)
+        result = (
+            await answer_pdf(pages, question, mode, context_question)
+            if context_question
+            else await answer_pdf(pages, question, mode)
+        )
         jobs[job_id].update(status="done", result=result.model_dump())
     except ProviderError as exc:
         jobs[job_id].update(status="error", error=str(exc))
@@ -218,7 +223,9 @@ async def ask(body: AskRequest, identity: str = Depends(owner)):
     history.append(now)
     job_id = secrets.token_urlsafe(24)
     jobs[job_id] = {"owner": identity, "status": "pending", "created": now}
-    task = asyncio.create_task(run_job(job_id, document.pages, body.question.strip(), body.mode))
+    task = asyncio.create_task(
+        run_job(job_id, document.pages, body.question.strip(), body.mode, body.context_question.strip())
+    )
     tasks.add(task)
     task.add_done_callback(tasks.discard)
     return {"job_id": job_id}
