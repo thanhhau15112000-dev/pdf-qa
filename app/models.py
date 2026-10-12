@@ -14,7 +14,7 @@ class AnswerItem(BaseModel):
     title: str = Field(min_length=1, max_length=300)
     status: Literal["supported", "inference", "insufficient", "conflict"]
     answer: str = Field(max_length=6000)
-    citations: list[Citation] = Field(max_length=8)
+    citations: list[Citation] = Field(max_length=30)  # PDF uploads are limited to 30 pages.
     missing_information: list[Annotated[str, Field(min_length=1, max_length=500)]] = Field(
         default_factory=list, max_length=8
     )
