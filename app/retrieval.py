@@ -5,10 +5,19 @@ from collections import Counter
 
 # Groq free tier rejects requests above 8k tokens/minute; Vietnamese text measured ~0.32 token/char.
 # System prompt + examples + schema + output reserve take ~3k tokens, questions up to ~1.3k.
-CONTEXT_CHARS = 10_000
+CONTEXT_CHARS = 8_000
 CHUNK_CHARS = 800
 GAP = "\n[...]\n"
 QUESTION = re.compile(r"\b(cau|bai|question|exercise)\s*\d+")
+SUMMARY_CUES = ("tom tat", "y chinh", "tong quan", "summary", "overview")
+MODEL_LIST_CUE = re.compile(r"\b(?:models?|llms?)\s*(?::|include\b|are\b|such as\b|like\b)")
+REFERENCE_LIST_CUE = re.compile(r"\breferences?\s*(?:\[\s*1\s*\]|1\.)")
+SUMMARY_GENERIC_WORDS = {
+    "a", "all", "an", "and", "are", "ca", "cac", "content", "document", "entire", "for", "in", "key",
+    "main", "noi", "of", "on", "overview", "paper", "phan", "points", "summary", "takeaways", "tat",
+    "the", "this", "to", "toan", "tong", "trang", "trong", "ve", "van", "y", "chinh", "lieu", "nguon",
+    "dung", "bo", "kem", "tai",
+}
 
 
 def fold(text: str) -> str:
@@ -48,6 +57,30 @@ def chunk_pages(pages: list[str]) -> list[tuple[int, str]]:
     return chunks
 
 
+def is_document_wide_summary(query: str) -> bool:
+    normalized = fold(query)
+    if not any(cue in normalized for cue in SUMMARY_CUES):
+        return False
+    topic = re.sub(r"\b(?:tom tat|y chinh|tong quan|summary|overview)\b", " ", normalized)
+    terms = set(re.findall(r"\w+", topic))
+    return not any(len(term) > 1 and term not in SUMMARY_GENERIC_WORDS for term in terms)
+
+
+def is_model_list_question(query: str) -> bool:
+    normalized = fold(query)
+    asks_for_models = re.search(r"\b(?:which|what|list|name|identify)\b", normalized)
+    mentions_models = re.search(r"\b(?:models?|llms?)\b", normalized)
+    return bool(asks_for_models and mentions_models)
+
+
+def is_first_reference_question(query: str) -> bool:
+    normalized = fold(query)
+    return bool(
+        re.search(r"\b(?:first|1st|dau tien|thu nhat)\b", normalized)
+        and re.search(r"\b(?:reference|citation|source|tham khao|nguon)\b", normalized)
+    )
+
+
 def bm25(chunks: list[tuple[int, str]], query: str) -> list[float]:
     docs = [Counter(terms(text)) for _, text in chunks]
     wanted = set(terms(query))
@@ -66,23 +99,58 @@ def bm25(chunks: list[tuple[int, str]], query: str) -> list[float]:
 
 
 def select_context(pages: list[str], query: str, mode: str) -> tuple[list[dict], bool]:
-    """Whole PDF when it fits the budget; otherwise the most relevant chunks, kept in page order."""
+    """Budgeted retrieval with per-query coverage, neighboring context, and summary sampling."""
     if sum(map(len, pages)) <= CONTEXT_CHARS:
         return [{"page": i + 1, "text": text} for i, text in enumerate(pages)], False
     chunks = chunk_pages(pages)
+    if not chunks:
+        return [], True
+    normalized = fold(query)
+    document_wide_summary = is_document_wide_summary(query)
+    pinned = {int(n) for n in re.findall(r"\b(?:trang|page)\s*(\d+)", normalized)}
+    seeds = []
+    scores = bm25(chunks, query)
     if mode == "solve":
-        # Exercises in document order ("Câu 3", "Bài 2"), so the first questions are solved first.
-        ranked = [i for i, (_, text) in enumerate(chunks) if QUESTION.search(fold(text))]
+        seeds = [i for i, (_, text) in enumerate(chunks) if QUESTION.search(fold(text))]
+    elif document_wide_summary and not pinned:
+        # Sample across the full document instead of silently reading only its beginning.
+        page_first = list(dict.fromkeys(page for page, _ in chunks))
+        capacity = max(1, CONTEXT_CHARS // (CHUNK_CHARS + len(GAP)))
+        samples = min(capacity, len(page_first))
+        positions = sorted({round(i * (len(page_first) - 1) / max(1, samples - 1)) for i in range(samples)})
+        seeds = [next(i for i, (page, _) in enumerate(chunks) if page == page_first[pos]) for pos in positions]
     else:
-        # Explicit "trang N" in the question pins that page first.
-        pinned = {int(n) for n in re.findall(r"\btrang\s*(\d+)", fold(query))}
-        scores = [score + (1000 if page in pinned else 0) for score, (page, _) in zip(bm25(chunks, query), chunks)]
-        ranked = sorted((i for i in range(len(chunks)) if scores[i] > 0), key=lambda i: -scores[i])
+        if not pinned and is_model_list_question(query):
+            seeds.extend(i for i, (_, text) in enumerate(chunks) if MODEL_LIST_CUE.search(fold(text)))
+        if not pinned and is_first_reference_question(query):
+            seeds.extend(i for i, (_, text) in enumerate(chunks) if REFERENCE_LIST_CUE.search(fold(text)))
+        if not seeds:
+            # Cover each subquestion before letting a frequent topic monopolize the budget.
+            parts = [part.strip() for part in re.split(r"[?;\n]+", query) if part.strip()][:12]
+            for part in parts:
+                part_scores = bm25(chunks, part)
+                candidates = [i for i, (page, _) in enumerate(chunks) if not pinned or page in pinned]
+                candidates = sorted(candidates, key=lambda i: -part_scores[i])
+                if candidates and (part_scores[candidates[0]] > 0 or pinned):
+                    seeds.append(candidates[0])
+        seeds.extend(i for i, (page, _) in enumerate(chunks) if page in pinned)
+    ranked = sorted((i for i in range(len(chunks)) if scores[i] > 0), key=lambda i: -scores[i])
+    order = list(dict.fromkeys(seeds))
+    # Include continuations of a selected exercise/paragraph on the same or next page.
+    for i in list(order):
+        for neighbor in (i + 1, i - 1):
+            if 0 <= neighbor < len(chunks) and abs(chunks[neighbor][0] - chunks[i][0]) <= 1:
+                if neighbor not in order:
+                    order.append(neighbor)
+    if mode != "solve" and not document_wide_summary:
+        order.extend(i for i in ranked if i not in order)
     chosen, used = [], 0
-    for i in ranked or range(len(chunks)):
-        if used + len(chunks[i][1]) <= CONTEXT_CHARS:
+    for i in order or range(len(chunks)):
+        # Reserve separators too; the serialized text stays within the character budget.
+        cost = len(chunks[i][1]) + len(GAP)
+        if used + cost <= CONTEXT_CHARS:
             chosen.append(i)
-            used += len(chunks[i][1])
+            used += cost
     selected = []
     for i in sorted(chosen):
         page, text = chunks[i]

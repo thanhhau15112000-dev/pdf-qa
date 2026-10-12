@@ -48,7 +48,7 @@ def test_explicit_page_and_solve_mode():
     selected, _ = select_context(pages, "Tóm tắt trang 5", "ask")
     assert any(item["page"] == 5 for item in selected)
     solve, _ = select_context(pages, "", "solve")
-    assert [item["page"] for item in solve] == [18] and "Câu 3" in solve[0]["text"]
+    assert any(item["page"] == 18 and "Câu 3" in item["text"] for item in solve)
 
 
 def test_non_contiguous_chunks_are_marked():
@@ -105,3 +105,58 @@ def test_rejection_keeps_model_notice():
     )
     notice = verify_answer(answer, ["Văn bản khác."]).notice
     assert "bị chặn" in notice and "12/20" in notice
+
+
+def test_summary_samples_first_and_last_page():
+    selected, excerpted = select_context(long_pages(), "Tóm tắt toàn bộ", "ask")
+    assert excerpted
+    assert selected[0]["page"] == 1 and selected[-1]["page"] == 30
+    assert sum(len(item["text"]) for item in selected) <= CONTEXT_CHARS
+
+
+def test_topic_summary_retrieves_section_instead_of_sampling_page_starts():
+    filler = "Unrelated project management notes. " * 20
+    pages = ["\n".join([filler] * 8) for _ in range(12)]
+    target = "Knowledge-base processing and RAG use vector embeddings for semantic retrieval."
+    pages[1] = "\n".join([filler] * 5 + [target] + [filler] * 2)
+
+    selected, excerpted = select_context(pages, "Summary Knowledge-base processing and RAG", "ask")
+
+    assert excerpted
+    assert target in "\n".join(item["text"] for item in selected)
+
+
+def test_model_list_question_retrieves_model_inventory():
+    filler = "Unrelated project management notes. " * 20
+    pages = ["\n".join([filler] * 8) for _ in range(12)]
+    target = "Supported models include basic LLMs: Model A and Model B; embedding models include Embed A."
+    pages[9] = "\n".join([filler] * 5 + [target] + [filler] * 2)
+
+    selected, excerpted = select_context(pages, "Which AI Model is used in this paper?", "ask")
+
+    assert excerpted
+    assert target in "\n".join(item["text"] for item in selected)
+
+
+def test_first_reference_question_retrieves_bibliography_entry():
+    filler = "Unrelated project management notes. " * 20
+    pages = ["\n".join([filler] * 8) for _ in range(12)]
+    target = "References [1] Ada Example. First source title. Journal, 2024."
+    pages[11] = "\n".join([filler] * 5 + [target] + [filler] * 2)
+
+    selected, excerpted = select_context(pages, "Show me the first reference", "ask")
+
+    assert excerpted
+    assert target in "\n".join(item["text"] for item in selected)
+
+
+def test_multiple_questions_retrieve_separate_topics():
+    pages = long_pages()
+    selected, _ = select_context(pages, "Vận tốc ở câu 3? Rủi ro thanh khoản là gì?", "ask")
+    assert {18, 25}.issubset({item["page"] for item in selected})
+
+
+def test_exercise_continuation_is_included():
+    pages = [(FILLER * 150).strip(), "Câu 9: Tính vận tốc trung bình.", "Quãng đường 150 km, thời gian 3 giờ."]
+    selected, _ = select_context(pages, "Câu 9 vận tốc", "ask")
+    assert any("150 km" in item["text"] for item in selected)
